@@ -1,0 +1,52 @@
+name: Migrate Rob photos to image files
+on:
+  push:
+    branches: [rob-photo-migration-v2]
+    paths: ['.github/workflows/migrate-rob-photos.yml']
+permissions:
+  contents: write
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: rob-photo-migration-v2
+      - name: Decode embedded photos
+        shell: python
+        run: |
+          import base64, json, pathlib, re, shutil
+          root = pathlib.Path('rob-map')
+          sources = {
+            'slaters': root/'media-slaters.js',
+            'emerald': root/'media-ultra-emerald.js',
+            'giants': root/'media-ultra-giants.js',
+            'glenariffe': root/'media-glenariffe.js',
+            'colorado': root/'media-colorado.js',
+            'idwal': root/'media-idwal.js',
+          }
+          manifest = {}
+          photos_root = root/'photos'
+          if photos_root.exists(): shutil.rmtree(photos_root)
+          for place, src in sources.items():
+            out = photos_root/place
+            out.mkdir(parents=True, exist_ok=True)
+            items=[]
+            if src.exists():
+              text=src.read_text(encoding='utf-8')
+              matches=re.findall(r'data:image/(jpeg|jpg|png);base64,([^\'\"]+)', text)
+              for idx,(ext,payload) in enumerate(matches,1):
+                ext='jpg' if ext in ('jpeg','jpg') else 'png'
+                path=out/f'{idx:02d}.{ext}'
+                path.write_bytes(base64.b64decode(payload))
+                items.append(f'photos/{place}/{idx:02d}.{ext}')
+            manifest[place]=items
+          (root/'photos-manifest.js').write_text('window.ROB_PHOTOS='+json.dumps(manifest,separators=(',',':'))+';\n',encoding='utf-8')
+          print(json.dumps(manifest, indent=2))
+      - name: Commit migrated photos
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add rob-map/photos rob-map/photos-manifest.js
+          git commit -m "Store Remembering Rob photos as image files" || exit 0
+          git push origin HEAD:rob-photo-migration-v2
